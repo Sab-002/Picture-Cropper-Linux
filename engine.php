@@ -3,11 +3,15 @@
 // Nothing uploaded is stored in the project: originals live in the system temp dir for the
 // duration of the request; only the cropped previews are written (uploads/previews/).
 
+// First existing interpreter wins. Project-local venvs come first (Linux: bin/python,
+// Windows: Scripts/python.exe); the Laragon/XAMPP paths are kept for Windows setups.
 $pythonCandidates = [
+    __DIR__ . '/.venv/bin/python',
+    __DIR__ . '/.venv-kraken/bin/python',
+    __DIR__ . '/.venv/Scripts/python.exe',
+    __DIR__ . '/.venv-kraken/Scripts/python.exe',
     'C:/xampp/htdocs/crms-laravel-12/ml/.venv-kraken/Scripts/python.exe',
     'C:/laragon/www/crms-laravel-12-main/ml/.venv-kraken/Scripts/python.exe',
-    __DIR__ . '/.venv-kraken/Scripts/python.exe',
-    __DIR__ . '/.venv/Scripts/python.exe',
 ];
 $krakenPy = 'python';
 foreach ($pythonCandidates as $candidate) {

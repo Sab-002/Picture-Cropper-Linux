@@ -400,8 +400,8 @@ function renderError(string $msg): never
 
         .bbox {
             position: absolute;
-            border: 1.5px solid rgba(255, 255, 255, 0.6);
-            background: rgba(255, 255, 255, 0.08);
+            border: 1.5px solid transparent;
+            background: transparent;
             border-radius: 3px;
             cursor: pointer;
             transition: all .15s ease;

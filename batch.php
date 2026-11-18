@@ -86,7 +86,7 @@ $maxFiles = (int) ini_get('max_file_uploads');
         .page > .cap { position:absolute; top:-17px; left:0; font-size:.68rem; color:var(--muted); }
         .page img { display:block; width:100%; height:auto; border-radius:4px; }
         .overlay { position:absolute; inset:0; }
-        .bbox { position:absolute; border:1.5px solid rgba(255,255,255,.18); background:transparent; border-radius:2px; cursor:pointer; transition:all .12s; }
+        .bbox { position:absolute; border:1.5px solid transparent; background:transparent; border-radius:2px; cursor:pointer; transition:all .12s; }
         .bbox.sel { border:1.5px solid rgba(74,222,128,.9); background:rgba(74,222,128,.12); }
         .bbox:hover, .bbox.hl { border-color:#fff; background:rgba(255,255,255,.28); z-index:5; }
 
