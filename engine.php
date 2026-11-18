@@ -36,6 +36,30 @@ function tempFile(string $suffix): string
     return $p;
 }
 
+/**
+ * Why a hand-adjusted crop (replace_crop) can't be stored, or null when it can.
+ * $dst is the existing preview the crop replaces; $up is $_FILES['image'].
+ */
+function cropUploadError(string $name, string $dst, ?array $up): ?string
+{
+    $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+    if ($name === '' || !in_array($ext, ['png', 'jpeg', 'webp'], true)) {
+        return 'Unknown crop file name "' . $name . '".';
+    }
+    if (!is_file($dst)) {
+        return 'The crop file ' . $name . ' is no longer in uploads/previews/. Previews are cleared when a new '
+            . 'scan starts (also from another tab or page), so scan this document again.';
+    }
+    if (!$up) return 'No image received.';
+    return match ($up['error']) {
+        UPLOAD_ERR_OK => $up['size'] > 20 * 1024 * 1024 ? 'The new crop is larger than 20 MB.' : null,
+        UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'The new crop is larger than the server allows (upload_max_filesize = '
+            . ini_get('upload_max_filesize') . ' in php.ini).',
+        UPLOAD_ERR_NO_TMP_DIR, UPLOAD_ERR_CANT_WRITE => 'The server could not store the upload (temp folder missing or not writable).',
+        default => 'The upload failed (PHP upload error ' . $up['error'] . ').',
+    };
+}
+
 /** Run a python script, return [exitCode, stdout+stderr] */
 function runPy(string $script, array $args): array
 {
@@ -76,7 +100,7 @@ function displayCopy(\GdImage $img, int $w, int $h): string
     ob_start();
     imagejpeg($out, null, 82);
     $bin = ob_get_clean();
-    if ($out !== $img) imagedestroy($out);
+    if ($out !== $img) unset($out);
     return 'data:image/jpeg;base64,' . base64_encode($bin);
 }
 
@@ -890,7 +914,7 @@ function saveCrop(\GdImage $src, int $x, int $y, int $w, int $h, int $padding,
         case 'webp': imagewebp($croppedImg, $path, 95); break;
         default:     imagepng($croppedImg, $path);      break;
     }
-    imagedestroy($croppedImg);
+    unset($croppedImg);
 
     return ['file' => 'uploads/previews/' . $filename, 'filename' => $filename, 'w' => $cw, 'h' => $ch, 'x' => $x0, 'y' => $y0];
 }
@@ -1044,7 +1068,7 @@ function scanUploads(array $uploads, string $prefix, int $padding, string $outpu
                 'box' => ['x' => $b['x'], 'y' => $b['y'], 'w' => $b['w'], 'h' => $b['h']],
             ];
         }
-        imagedestroy($sourceImage);
+        unset($sourceImage);
         $pages[] = $page;
     }
 

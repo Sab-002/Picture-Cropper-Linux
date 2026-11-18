@@ -48,13 +48,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 // ── Handle AJAX replace_crop: overwrite one crop with an adjusted version ───
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'replace_crop') {
     header('Content-Type: application/json');
+    require __DIR__ . '/engine.php';
     $name = basename((string) ($_POST['filename'] ?? ''));
     $dst  = $previewDir . $name;
     $ext  = strtolower(pathinfo($name, PATHINFO_EXTENSION));
     $up   = $_FILES['image'] ?? null;
-    if (!is_file($dst) || !in_array($ext, ['png', 'jpeg', 'webp'], true) || !$up || $up['error'] !== UPLOAD_ERR_OK || $up['size'] > 20 * 1024 * 1024) {
+    if ($err = cropUploadError($name, $dst, $up)) {
         http_response_code(400);
-        echo json_encode(['success' => false, 'error' => 'Bad crop upload']);
+        echo json_encode(['success' => false, 'error' => $err]);
         exit;
     }
     $img = @imagecreatefromstring((string) file_get_contents($up['tmp_name']));
@@ -70,7 +71,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'repla
     }
     $w = imagesx($img);
     $h = imagesy($img);
-    imagedestroy($img);
+    unset($img);
     // a copy already saved to output/ would now be stale: refresh it
     if (is_file($outputDir . $name)) copy($dst, $outputDir . $name);
     echo json_encode(['success' => true, 'w' => $w, 'h' => $h]);
@@ -938,8 +939,8 @@ function renderError(string $msg): never
     </main>
 
     <!-- Preview Modal (view + adjust crop) -->
-    <div class="modal" id="previewModal" onclick="closeModal()">
-        <div class="modal-content" onclick="event.stopPropagation();">
+    <div class="modal" id="previewModal">
+        <div class="modal-content">
             <div class="modal-header">
                 <h3 id="modalTitle" style="font-size:1rem; font-weight:700;">Word Preview</h3>
                 <div style="display:flex;align-items:center;gap:10px;">
@@ -950,7 +951,7 @@ function renderError(string $msg): never
             <img id="modalImg" src="" alt="Word Zoom">
 
             <div id="cropEditor" style="display:none;">
-                <div class="ce-hint">Drag the box to move it, drag a handle to resize. The picture is re-cut from the page.</div>
+                <div class="ce-hint">Drag on the picture to draw a new crop box (it replaces the old one); drag a handle to fine-tune it. The picture is re-cut from the page.</div>
                 <div class="ce-stage" id="ceStage">
                     <canvas id="ceCanvas"></canvas>
                     <div class="ce-rect" id="ceRect">
@@ -1233,6 +1234,24 @@ function renderError(string $msg): never
             $m('previewModal').classList.remove('open');
         }
 
+        // close only on a real click on the dark backdrop: a drag that starts in the editor and is
+        // released outside it also produces a "click" on the backdrop, which used to throw the edit away
+        let modalDownOnBackdrop = false;
+        $m('previewModal').addEventListener('pointerdown', (e) => { modalDownOnBackdrop = e.target === e.currentTarget; }, true);
+        $m('previewModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget && modalDownOnBackdrop) closeModal();
+        });
+
+        /** Parse a JSON reply; a PHP error page or an over-size upload otherwise surfaces as a cryptic JSON error. */
+        async function readJson(res) {
+            const txt = await res.text();
+            try { return JSON.parse(txt); }
+            catch (_) {
+                const msg = txt.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+                throw new Error(`server replied ${res.status}: ${msg || 'empty response (upload too large?)'}`);
+            }
+        }
+
         const ed = { rect: null, orig: null, region: null, k: 1, s: 1, img: null, page: null };
 
         function startEdit() {
@@ -1244,8 +1263,8 @@ function renderError(string $msg): never
             ed.img = img; ed.page = pg; ed.s = img.naturalWidth / pg.w;
             ed.orig = { x: w.crop.x, y: w.crop.y, w: w.w, h: w.h };
             ed.rect = { ...ed.orig };
-            // show the crop with some surrounding page so it can be grown as well as shrunk
-            const m = Math.max(40, Math.round(Math.max(w.w, w.h) * 0.6));
+            // show the crop with plenty of surrounding page so a new box can be drawn around it
+            const m = Math.max(60, Math.round(Math.max(w.w, w.h)));
             const rx = Math.max(0, w.crop.x - m), ry = Math.max(0, w.crop.y - m);
             ed.region = {
                 x: rx, y: ry,
@@ -1281,31 +1300,52 @@ function renderError(string $msg): never
                 (ed.s < 1 ? ' · page preview is downscaled, so the new crop has a lower resolution' : '');
         }
 
-        // drag to move / resize
+        // drag a handle to fine-tune the box (anything else bubbles up to the stage: draw a new box)
         $m('ceRect').addEventListener('pointerdown', (e) => {
+            const handle = e.target.dataset.h;
+            if (!handle) return;
             e.preventDefault(); e.stopPropagation();
-            const handle = e.target.dataset.h || 'move';
             const start = { px: e.clientX, py: e.clientY, ...ed.rect };
             const R = ed.region, MIN = 4;
             const move = (ev) => {
                 const dx = (ev.clientX - start.px) / ed.k, dy = (ev.clientY - start.py) / ed.k;
                 let x0 = start.x, y0 = start.y, x1 = start.x + start.w, y1 = start.y + start.h;
-                if (handle === 'move') {
-                    x0 = Math.min(Math.max(start.x + dx, R.x), R.x + R.w - start.w);
-                    y0 = Math.min(Math.max(start.y + dy, R.y), R.y + R.h - start.h);
-                    x1 = x0 + start.w; y1 = y0 + start.h;
-                } else {
-                    if (handle.includes('w')) x0 = Math.min(Math.max(start.x + dx, R.x), x1 - MIN);
-                    if (handle.includes('e')) x1 = Math.max(Math.min(x1 + dx, R.x + R.w), x0 + MIN);
-                    if (handle.includes('n')) y0 = Math.min(Math.max(start.y + dy, R.y), y1 - MIN);
-                    if (handle.includes('s')) y1 = Math.max(Math.min(y1 + dy, R.y + R.h), y0 + MIN);
-                }
+                if (handle.includes('w')) x0 = Math.min(Math.max(start.x + dx, R.x), x1 - MIN);
+                if (handle.includes('e')) x1 = Math.max(Math.min(x1 + dx, R.x + R.w), x0 + MIN);
+                if (handle.includes('n')) y0 = Math.min(Math.max(start.y + dy, R.y), y1 - MIN);
+                if (handle.includes('s')) y1 = Math.max(Math.min(y1 + dy, R.y + R.h), y0 + MIN);
                 ed.rect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
                 drawRect();
             };
             const up = () => {
                 window.removeEventListener('pointermove', move);
                 window.removeEventListener('pointerup', up);
+            };
+            window.addEventListener('pointermove', move);
+            window.addEventListener('pointerup', up);
+        });
+
+        // drag on the picture to draw a brand-new crop box that replaces the old one
+        $m('ceStage').addEventListener('pointerdown', (e) => {
+            if (e.button !== 0 || !ed.rect) return;
+            e.preventDefault(); e.stopPropagation();
+            const R = ed.region, MIN = 4, prev = { ...ed.rect };
+            const cv = $m('ceCanvas'), cr = cv.getBoundingClientRect();
+            const toPage = (ev) => ({
+                x: Math.min(Math.max(R.x + (ev.clientX - cr.left) * (cv.width / cr.width) / ed.k, R.x), R.x + R.w),
+                y: Math.min(Math.max(R.y + (ev.clientY - cr.top) * (cv.height / cr.height) / ed.k, R.y), R.y + R.h),
+            });
+            const p0 = toPage(e);
+            const move = (ev) => {
+                const p = toPage(ev);
+                ed.rect = { x: Math.min(p0.x, p.x), y: Math.min(p0.y, p.y), w: Math.abs(p.x - p0.x), h: Math.abs(p.y - p0.y) };
+                drawRect();
+            };
+            const up = () => {
+                window.removeEventListener('pointermove', move);
+                window.removeEventListener('pointerup', up);
+                // a click (or a tiny drag) is not a new box: keep the previous one
+                if (ed.rect && (ed.rect.w < MIN || ed.rect.h < MIN)) { ed.rect = prev; drawRect(); }
             };
             window.addEventListener('pointermove', move);
             window.addEventListener('pointerup', up);
@@ -1330,7 +1370,7 @@ function renderError(string $msg): never
                 fd.append('filename', w.filename);
                 fd.append('image', blob, 'crop.png');
                 const res = await fetch('process.php', { method: 'POST', body: fd });
-                const data = await res.json();
+                const data = await readJson(res);
                 if (!data.success) throw new Error(data.error || 'save failed');
 
                 // update the data model, the card and the box drawn on the page

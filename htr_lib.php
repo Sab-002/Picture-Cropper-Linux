@@ -171,7 +171,7 @@ function batchProcessForHTR(string $outputDir, string $htrImageDir, string $htrE
         if (!$src) { $skipped++; continue; }
 
         $prepared = prepareImageForHTR($src, $targetHeight);
-        imagedestroy($src);
+        unset($src);
         if (!$prepared) { $skipped++; continue; }
 
         $id = isset($old[$orig]) ? (int) $old[$orig]['id'] : ++$maxId;
@@ -179,7 +179,7 @@ function batchProcessForHTR(string $outputDir, string $htrImageDir, string $htrE
         imagepng($prepared, $htrImageDir . $newFilename, 6);
         $finalW = imagesx($prepared);
         $finalH = imagesy($prepared);
-        imagedestroy($prepared);
+        unset($prepared);
 
         $manifest[] = [
             'id' => $id,

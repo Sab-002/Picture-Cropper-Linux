@@ -1,0 +1,19 @@
+# Python virtual environments (Kraken + PyTorch, several GB; each machine creates its own)
+.venv/
+.venv-kraken/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# pip-generated launcher scripts for pylibs (machine-specific)
+pylibs/bin/
+
+# Cropped pictures and other runtime data stay on each machine.
+# The app recreates these folders when it needs them.
+#   uploads/previews/  crops waiting to be checked (plus uploads/node_id.txt)
+#   output/            crops you pressed Save on
+#   htr_dataset/       HTR dataset: images/ (processed crops), exports/ (zips), labels, manifest
+uploads/
+output/
+htr_dataset/

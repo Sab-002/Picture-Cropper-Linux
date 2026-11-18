@@ -232,7 +232,7 @@ $maxFiles = (int) ini_get('max_file_uploads');
             </div>
             <div id="zoomWrap"><img id="modalImg" alt=""></div>
             <div id="cropEditor" style="display:none">
-                <div class="ce-hint">Drag the box to move it, drag a handle to resize. The picture is re-cut from the page.</div>
+                <div class="ce-hint">Drag on the picture to draw a new crop box (it replaces the old one); drag a handle to fine-tune or tilt it. The picture is re-cut from the page.</div>
                 <div class="ce-stage" id="ceStage">
                     <canvas id="ceCanvas"></canvas>
                     <div class="ce-rect" id="ceRect">
@@ -726,7 +726,8 @@ $maxFiles = (int) ini_get('max_file_uploads');
         ed.orig = { x: w.crop.x, y: w.crop.y, w: w.w, h: w.h };
         ed.rect = { ...ed.orig };
         ed.angle = 0; $('ceTilt').value = 0; $('ceTiltVal').textContent = '0°';
-        const m =Math.max(40, Math.round(Math.max(w.w, w.h) * 0.6));
+        // plenty of surrounding page so a new box can be drawn around the old crop
+        const m = Math.max(60, Math.round(Math.max(w.w, w.h)));
         const rx = Math.max(0, w.crop.x - m), ry = Math.max(0, w.crop.y - m);
         ed.region = { x: rx, y: ry, w: Math.min(pg.w, w.crop.x + w.w + m) - rx, h: Math.min(pg.h, w.crop.y + w.h + m) - ry };
         ed.k = Math.min(720 / ed.region.w, 380 / ed.region.h, 6);
@@ -753,9 +754,11 @@ $maxFiles = (int) ini_get('max_file_uploads');
         el.style.transform = ed.angle ? `rotate(${ed.angle}deg)` : '';
         $('ceInfo').textContent = `${Math.round(r.w)}×${Math.round(r.h)} px` + (ed.s < 1 ? ' · page preview is downscaled, so the new crop has a lower resolution' : '');
     }
+    // drag a handle to fine-tune / tilt the box (anything else bubbles up to the stage: draw a new box)
     $('ceRect').addEventListener('pointerdown', (e) => {
+        const handle = e.target.dataset.h;
+        if (!handle) return;
         e.preventDefault(); e.stopPropagation();
-        const handle = e.target.dataset.h || 'move';
         const start = { px: e.clientX, py: e.clientY, ...ed.rect };
         const R = ed.region, MIN = 4;
         const box = $('ceRect').getBoundingClientRect();
@@ -770,28 +773,48 @@ $maxFiles = (int) ini_get('max_file_uploads');
             const dx = (ev.clientX - start.px) / ed.k, dy = (ev.clientY - start.py) / ed.k;
             const th = ed.angle * Math.PI / 180, cos = Math.cos(th), sin = Math.sin(th);
             const cx0 = start.x + start.w / 2, cy0 = start.y + start.h / 2;
-            if (handle === 'move') {
-                const cx = Math.min(Math.max(cx0 + dx, R.x), R.x + R.w), cy = Math.min(Math.max(cy0 + dy, R.y), R.y + R.h);
-                ed.rect = { x: cx - start.w / 2, y: cy - start.h / 2, w: start.w, h: start.h };
-            } else {
-                // resize in the box's own (tilted) frame, relative to its centre
-                const ldx = dx * cos + dy * sin, ldy = -dx * sin + dy * cos;
-                let l = -start.w / 2, r = start.w / 2, t = -start.h / 2, b = start.h / 2;
-                if (handle.includes('w')) l = Math.min(l + ldx, r - MIN);
-                if (handle.includes('e')) r = Math.max(r + ldx, l + MIN);
-                if (handle.includes('n')) t = Math.min(t + ldy, b - MIN);
-                if (handle.includes('s')) b = Math.max(b + ldy, t + MIN);
-                if (!ed.angle) {
-                    l = Math.max(l, R.x - cx0); r = Math.min(r, R.x + R.w - cx0);
-                    t = Math.max(t, R.y - cy0); b = Math.min(b, R.y + R.h - cy0);
-                }
-                const lcx = (l + r) / 2, lcy = (t + b) / 2;
-                const cx = cx0 + lcx * cos - lcy * sin, cy = cy0 + lcx * sin + lcy * cos;
-                ed.rect = { x: cx - (r - l) / 2, y: cy - (b - t) / 2, w: r - l, h: b - t };
+            // resize in the box's own (tilted) frame, relative to its centre
+            const ldx = dx * cos + dy * sin, ldy = -dx * sin + dy * cos;
+            let l = -start.w / 2, r = start.w / 2, t = -start.h / 2, b = start.h / 2;
+            if (handle.includes('w')) l = Math.min(l + ldx, r - MIN);
+            if (handle.includes('e')) r = Math.max(r + ldx, l + MIN);
+            if (handle.includes('n')) t = Math.min(t + ldy, b - MIN);
+            if (handle.includes('s')) b = Math.max(b + ldy, t + MIN);
+            if (!ed.angle) {
+                l = Math.max(l, R.x - cx0); r = Math.min(r, R.x + R.w - cx0);
+                t = Math.max(t, R.y - cy0); b = Math.min(b, R.y + R.h - cy0);
             }
+            const lcx = (l + r) / 2, lcy = (t + b) / 2;
+            const cx = cx0 + lcx * cos - lcy * sin, cy = cy0 + lcx * sin + lcy * cos;
+            ed.rect = { x: cx - (r - l) / 2, y: cy - (b - t) / 2, w: r - l, h: b - t };
             drawRect();
         };
         const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+        window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
+    });
+    // drag on the picture to draw a brand-new crop box that replaces the old one (drawn straight; tilt it afterwards)
+    $('ceStage').addEventListener('pointerdown', (e) => {
+        if (e.button !== 0 || !ed.rect) return;
+        e.preventDefault(); e.stopPropagation();
+        const R = ed.region, MIN = 4, prev = { ...ed.rect }, prevAngle = ed.angle;
+        const cv = $('ceCanvas'), cr = cv.getBoundingClientRect();
+        const toPage = (ev) => ({
+            x: Math.min(Math.max(R.x + (ev.clientX - cr.left) * (cv.width / cr.width) / ed.k, R.x), R.x + R.w),
+            y: Math.min(Math.max(R.y + (ev.clientY - cr.top) * (cv.height / cr.height) / ed.k, R.y), R.y + R.h),
+        });
+        const p0 = toPage(e);
+        let drawing = false;
+        const move = (ev) => {
+            const p = toPage(ev);
+            if (!drawing) { drawing = true; setTilt(0); }
+            ed.rect = { x: Math.min(p0.x, p.x), y: Math.min(p0.y, p.y), w: Math.abs(p.x - p0.x), h: Math.abs(p.y - p0.y) };
+            drawRect();
+        };
+        const up = () => {
+            window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up);
+            // a click (or a tiny drag) is not a new box: keep the previous one
+            if (ed.rect && (ed.rect.w < MIN || ed.rect.h < MIN)) { ed.rect = prev; setTilt(prevAngle); }
+        };
         window.addEventListener('pointermove', move); window.addEventListener('pointerup', up);
     });
     $('adjustBtn').onclick = startEdit;
@@ -823,7 +846,13 @@ $maxFiles = (int) ini_get('max_file_uploads');
             fd.append('action', 'replace_crop'); fd.append('prefix', docs[cur].res.prefix);
             fd.append('filename', w.filename); fd.append('image', blob, 'crop.png');
             const res = await fetch(API, { method: 'POST', body: fd });
-            const data = await res.json();
+            const txt = await res.text();
+            let data;
+            try { data = JSON.parse(txt); }
+            catch (_) {   // a PHP error page or an over-size upload instead of JSON
+                const msg = txt.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+                throw new Error(`server replied ${res.status}: ${msg || 'empty response (upload too large?)'}`);
+            }
             if (!data.ok) throw new Error(data.error || 'save failed');
             w.w = data.w; w.h = data.h;
             w.crop = { x: Math.round(r.x), y: Math.round(r.y) };
@@ -840,7 +869,11 @@ $maxFiles = (int) ini_get('max_file_uploads');
             alert('Could not adjust the crop: ' + err.message);
         } finally { btn.disabled = false; }
     };
-    $('modal').onclick = (e) => { if (e.target === $('modal')) closeModal(); };
+    // close only on a real click on the backdrop: a drag that starts in the editor and is released
+    // outside it also produces a "click" on the backdrop, which used to throw the edit away
+    let modalDownOnBackdrop = false;
+    $('modal').addEventListener('pointerdown', (e) => { modalDownOnBackdrop = e.target === $('modal'); }, true);
+    $('modal').onclick = (e) => { if (e.target === $('modal') && modalDownOnBackdrop) closeModal(); };
     $('modalClose').onclick = closeModal;
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
 

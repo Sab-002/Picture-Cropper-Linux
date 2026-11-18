@@ -106,7 +106,7 @@ if ($action === 'upload_images') {
         // JPG / WEBP are converted losslessly to PNG.
         if (strncmp($bytes, chr(137) . 'PNG', 4) !== 0) { ob_start(); imagepng($img, null, 6); $bytes = (string) ob_get_clean(); }
         $uid = substr(sha1($bytes), 0, 20);
-        if (isset($have[$uid])) { imagedestroy($img); $res['duplicate']++; return; }   // the very same picture is already here
+        if (isset($have[$uid])) { unset($img); $res['duplicate']++; return; }   // the very same picture is already here
         $id = ++$maxId;
         $fn = sprintf('htr_%04d.png', $id);
         while (is_file($htrImageDir . $fn)) $fn = sprintf('htr_%04d.png', ++$maxId);   // never overwrite an existing image
@@ -115,7 +115,7 @@ if ($action === 'upload_images') {
         $items[] = ['id' => $id, 'original_filename' => $name, 'processed_filename' => $fn,
                     'relative_path' => 'htr_dataset/images/' . $fn, 'width' => imagesx($img), 'height' => imagesy($img),
                     'transcription' => '', 'status' => 'pending', 'source' => 'upload', 'uid' => $uid];
-        imagedestroy($img);
+        unset($img);
         $have[$uid] = true; $res['added']++;
     };
     $okExt = ['png', 'jpg', 'jpeg', 'webp'];

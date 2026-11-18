@@ -89,7 +89,7 @@ function dsPixelStats(string $bytes): ?array
             if ($l < 128) $ink++;
         }
     }
-    imagedestroy($im);
+    unset($im);
     $n = max(1, $w * $h);
     $mean = $sum / $n;
     $var = 0.0; $edges = 0;

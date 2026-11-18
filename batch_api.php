@@ -127,10 +127,8 @@ if ($action === 'replace_crop') {
     $ext  = strtolower(pathinfo($name, PATHINFO_EXTENSION));
     $dst  = $previewDir . $name;
     $up   = $_FILES['image'] ?? null;
-    if (strncmp($name, $prefix, strlen($prefix)) !== 0 || !is_file($dst) || !in_array($ext, ['png', 'jpeg', 'webp'], true)
-        || !$up || $up['error'] !== UPLOAD_ERR_OK || $up['size'] > 20 * 1024 * 1024) {
-        out(['ok' => false, 'error' => 'Bad crop upload'], 400);
-    }
+    if (strncmp($name, $prefix, strlen($prefix)) !== 0) out(['ok' => false, 'error' => 'That crop belongs to another document.'], 400);
+    if ($err = cropUploadError($name, $dst, $up)) out(['ok' => false, 'error' => $err], 400);
     $img = @imagecreatefromstring((string) file_get_contents($up['tmp_name']));
     if (!$img) out(['ok' => false, 'error' => 'Not a readable image'], 400);
     switch ($ext) {
@@ -139,7 +137,7 @@ if ($action === 'replace_crop') {
         default:     imagepng($img, $dst);      break;
     }
     $w = imagesx($img); $h = imagesy($img);
-    imagedestroy($img);
+    unset($img);
     out(['ok' => true, 'w' => $w, 'h' => $h]);
 }
 
@@ -162,7 +160,7 @@ if ($action === 'add_crop') {
 
     imagepng($img, $previewDir . $name);
     $w = imagesx($img); $h = imagesy($img);
-    imagedestroy($img);
+    unset($img);
     out(['ok' => true, 'filename' => $name, 'file' => 'uploads/previews/' . $name, 'w' => $w, 'h' => $h]);
 }
 
