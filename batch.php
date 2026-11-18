@@ -89,6 +89,9 @@ $maxFiles = (int) ini_get('max_file_uploads');
         .bbox { position:absolute; border:1.5px solid transparent; background:transparent; border-radius:2px; cursor:pointer; transition:all .12s; }
         .bbox.sel { border:1.5px solid rgba(74,222,128,.9); background:rgba(74,222,128,.12); }
         .bbox:hover, .bbox.hl { border-color:#fff; background:rgba(255,255,255,.28); z-index:5; }
+        /* an unticked crop (auto or manual) is removed from the page: no box, no hover, no click.
+           Tick it again on its card to bring the box back. */
+        .bbox:not(.sel) { visibility:hidden; pointer-events:none; }
 
         .words { display:flex; flex-direction:column; min-height:0; background:var(--bg); }
         .actions { padding:12px 16px; background:var(--panel); border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }

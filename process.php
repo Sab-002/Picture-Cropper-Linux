@@ -442,6 +442,13 @@ function renderError(string $msg): never
             background: rgba(255, 255, 255, 0.22);
         }
 
+        /* an unticked crop is removed from the page: no box, no hover, no click.
+           Tick it again on its card to bring the box back. */
+        .bbox:not(.selected) {
+            visibility: hidden;
+            pointer-events: none;
+        }
+
         /* ── Right Side: Selected Words Panel ── */
         .words-pane {
             display: flex;
