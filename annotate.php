@@ -53,9 +53,15 @@
         .meta b { color:#fff; }
         .stage { background:#fff; border-radius:14px; min-height:170px; display:flex; align-items:center; justify-content:center; padding:20px; overflow:auto; border:2px solid var(--border); }
         .stage img { height:130px; max-width:100%; object-fit:contain; image-rendering:auto; }
-        .stage.zoom img { height:260px; }
+        .stage { cursor:zoom-in; }
         #label { width:100%; font-size:1.7rem; padding:14px 18px; background:var(--card); color:#fff; border:2px solid var(--border); border-radius:12px; outline:none; font-weight:600; }
         #label:focus { border-color:#fff; }
+        .acwrap { position:relative; width:100%; }
+        #sug { display:none; position:absolute; left:0; right:0; top:calc(100% + 4px); z-index:20; background:var(--panel); border:1px solid var(--border); border-radius:10px; overflow:hidden; box-shadow:0 10px 30px rgba(0,0,0,.6); }
+        #sug div { padding:9px 18px; font-size:1.15rem; font-weight:600; cursor:pointer; display:flex; justify-content:space-between; gap:10px; }
+        #sug div small { color:var(--dim); font-size:.7rem; font-weight:500; align-self:center; }
+        #sug div b { color:var(--ok); }
+        #sug div.on, #sug div:hover { background:var(--surface); }
         .bar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
         .keys { color:var(--dim); font-size:.74rem; line-height:1.6; }
         kbd { background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:0 5px; font-size:.72rem; color:var(--muted); }
@@ -107,8 +113,10 @@
             <div id="work">
                 <div class="meta"><span>Image <b id="pos">0</b> of <b id="cnt">0</b> · <b id="idn"></b></span><span id="orig"></span></div>
                 <div class="stage" id="stage"><img id="img" alt=""></div>
-                <input id="label" list="seen" autocomplete="off" spellcheck="false" placeholder="Type the word you see…">
-                <datalist id="seen"></datalist>
+                <div class="acwrap">
+                    <input id="label" autocomplete="off" spellcheck="false" placeholder="Type the word you see…">
+                    <div id="sug" role="listbox"></div>
+                </div>
                 <div class="bar">
                     <div style="display:flex;gap:8px;flex-wrap:wrap">
                         <button class="btn" id="prevBtn">← Previous</button>
@@ -119,7 +127,7 @@
                 </div>
                 <div id="msg"></div>
                 <div class="keys"><kbd>Enter</kbd> save &amp; next · <kbd>Alt</kbd>+<kbd>←</kbd>/<kbd>→</kbd> previous / next ·
-                    <kbd>Alt</kbd>+<kbd>U</kbd> unreadable · type to autocomplete words you already used</div>
+                    <kbd>Alt</kbd>+<kbd>U</kbd> unreadable · type to get suggestions from words you already used: <kbd>Shift</kbd> or <kbd>Tab</kbd> accept · <kbd>↑</kbd>/<kbd>↓</kbd> choose · <kbd>Esc</kbd> close · <kbd>Mouse wheel</kbd> on the image to zoom in/out, double-click to reset</div>
             </div>
         </main>
     </div>
@@ -160,10 +168,66 @@
         const c = $('list').querySelector('.row.cur'); if (c) c.scrollIntoView({block: 'nearest'});
     }
 
-    function renderSeen() {
-        const set = new Set(items.filter(r => r.status === 'labeled').map(r => r.transcription));
-        $('seen').innerHTML = Array.from(set).slice(0, 400).map(t => `<option value="${esc(t)}">`).join('');
+    // ---- autocomplete: words already used, matched by prefix, most-used first ----
+    let sugList = [], sugIdx = -1;
+    function hideSug() { sugList = []; sugIdx = -1; $('sug').style.display = 'none'; }
+    function renderSug() {
+        const box = $('sug');
+        if (!sugList.length) { hideSug(); return; }
+        const n = $('label').value.trimStart().length;
+        box.innerHTML = sugList.map(([t, c], i) =>
+            `<div role="option" class="${i === sugIdx ? 'on' : ''}" data-i="${i}"><span><b>${esc(t.slice(0, n))}</b>${esc(t.slice(n))}</span><small>${c ? c + '×' : 'learned'}</small></div>`).join('');
+        box.style.display = 'block';
+        box.querySelectorAll('div').forEach(el => el.onmousedown = (e) => { e.preventDefault(); acceptSug(+el.dataset.i); });
     }
+    // What the tool learns from you (kept in this browser): how often you pick a suggestion and when a word was last used.
+    const LKEY = 'annotate_learned_v1';
+    let learned = {};
+    try { learned = JSON.parse(localStorage.getItem(LKEY) || '{}') || {}; } catch (e) { learned = {}; }
+    function learn(text, picked) {
+        text = (text || '').trim(); if (!text) return;
+        // learn the whole label and each word in it
+        const keys = new Set([text, ...text.split(/\s+/)]);
+        keys.forEach(k => {
+            const e = learned[k] || {p: 0, t: 0};
+            if (picked) e.p++;
+            e.t = Date.now();
+            learned[k] = e;
+        });
+        try { localStorage.setItem(LKEY, JSON.stringify(learned)); } catch (e) {}
+    }
+
+    function updateSug() {
+        const raw = $('label').value.trimStart();
+        if (!raw) { hideSug(); return; }
+        // complete the last word you are typing; earlier words stay as they are
+        const cut = raw.lastIndexOf(' ') + 1, head = raw.slice(0, cut), part = raw.slice(cut).toLowerCase();
+        if (!part) { hideSug(); return; }
+        const freq = new Map();
+        const add = (t) => freq.set(t, (freq.get(t) || 0) + 1);
+        items.forEach(r => {
+            if (r.status !== 'labeled' || !r.transcription) return;
+            if (!head) add(r.transcription);
+            r.transcription.split(/\s+/).forEach(add);
+        });
+        Object.keys(learned).forEach(k => { if (!freq.has(k)) freq.set(k, 0); });
+        const now = Date.now();
+        const score = (t, c) => { const l = learned[t] || {p: 0, t: 0}; return c + l.p * 3 + (l.t ? Math.max(0, 2 - (now - l.t) / 864e5 / 7) : 0); };
+        sugList = Array.from(freq)
+            .filter(([t]) => t.toLowerCase().startsWith(part) && t.toLowerCase() !== part)
+            .map(([t, c]) => [head + t, c, score(t, c)])
+            .sort((a, b) => b[2] - a[2] || a[0].localeCompare(b[0])).slice(0, 8);
+        sugIdx = -1;
+        renderSug();
+    }
+    function acceptSug(i) {
+        if (!sugList[i]) return false;
+        $('label').value = sugList[i][0];
+        learn(sugList[i][0].split(/\s+/).pop(), true);
+        hideSug(); $('label').focus();
+        return true;
+    }
+    function renderSeen() { /* suggestions are computed live while typing */ }
 
     function show() {
         const r = items[cur];
@@ -173,6 +237,7 @@
         $('img').src = r.relative_path;
         $('label').value = r.status === 'labeled' ? r.transcription : '';
         $('msg').textContent = r.status === 'unreadable' ? 'Marked as unreadable.' : '';
+        hideSug();
         renderList();
         $('label').focus(); $('label').select();
     }
@@ -183,6 +248,7 @@
         const j = await post({action: 'save', id: r.id, text, status});
         if (!j.ok) { $('msg').style.color = 'var(--err)'; $('msg').textContent = j.error || 'Could not save'; throw new Error(j.error); }
         r.status = j.status; r.transcription = j.text;
+        if (j.status === 'labeled') learn(j.text, false);
         stats(); renderSeen();
         return j;
     }
@@ -218,9 +284,36 @@
     $('saveBtn').onclick = saveNext;
     $('unreadBtn').onclick = async () => { $('label').value = ''; await commit('unreadable'); const n = nextIndex(cur); if (n !== cur) { cur = n; show(); } else renderList(); };
     $('prevBtn').onclick = () => goTo(cur - 1);
-    $('zoomBtn').onclick = () => $('stage').classList.toggle('zoom');
+    // Zoom: mouse wheel over the image (up = in, down = out), double-click or the button to reset/toggle.
+    let zoomH = 130;
+    const setZoom = (h) => { zoomH = Math.max(30, Math.min(900, Math.round(h))); $('img').style.height = zoomH + 'px'; $('img').style.maxWidth = zoomH > 260 ? 'none' : '100%'; };
+    $('stage').addEventListener('wheel', (e) => {
+        e.preventDefault();
+        setZoom(zoomH * (e.deltaY < 0 ? 1.12 : 1 / 1.12));
+    }, {passive: false});
+    $('stage').addEventListener('dblclick', () => setZoom(130));
+    $('zoomBtn').onclick = () => setZoom(zoomH === 130 ? 260 : 130);
+    $('label').addEventListener('input', updateSug);
+    $('label').addEventListener('blur', hideSug);
+    // Tapping Shift on its own accepts the suggestion; Shift used for a capital letter does not.
+    let shiftAlone = false;
+    $('label').addEventListener('keyup', (e) => {
+        if (e.key === 'Shift' && shiftAlone && sugList.length) acceptSug(sugIdx >= 0 ? sugIdx : 0);
+        if (e.key === 'Shift') shiftAlone = false;
+    });
     $('label').addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); saveNext(); }
+        if (e.key === 'Shift') { if (!e.repeat) shiftAlone = true; }
+        else shiftAlone = false;
+        const open = sugList.length > 0;
+        if (open && e.key === 'ArrowDown') { e.preventDefault(); sugIdx = (sugIdx + 1) % sugList.length; renderSug(); }
+        else if (open && e.key === 'ArrowUp') { e.preventDefault(); sugIdx = (sugIdx <= 0 ? sugList.length : sugIdx) - 1; renderSug(); }
+        else if (open && e.key === 'Tab') { e.preventDefault(); acceptSug(sugIdx >= 0 ? sugIdx : 0); }
+        else if (open && e.key === 'Escape') { e.preventDefault(); hideSug(); }
+        else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (open && sugIdx >= 0) acceptSug(sugIdx); // an arrow-selected suggestion is used as typed
+            hideSug(); saveNext();
+        }
     });
     document.addEventListener('keydown', (e) => {
         if (!e.altKey) return;
