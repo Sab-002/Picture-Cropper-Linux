@@ -393,7 +393,7 @@
             <input type="file" name="image" id="fileInput" accept="image/png,image/jpeg,image/webp" required>
             <div class="drop-icon">📄</div>
             <div class="drop-title">Drop your image here or click to browse</div>
-            <div class="drop-sub">Supports PNG, JPG, WEBP • Max 20MB</div>
+            <div class="drop-sub">Supports PNG, JPG, WEBP • Max 50MB</div>
         </div>
 
         <!-- Preview Area -->

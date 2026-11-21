@@ -81,21 +81,42 @@
             if (!list.length) return;
             if (!await askConfirm({ title: `Add ${list.length} file(s) to annotate?`,
                 message: 'The pictures are added to the dataset as "to label" (original pixels, unchanged). A .zip of images is unpacked.', confirmText: 'Upload' })) return;
-            const tot = { added: 0, duplicate: 0, invalid: 0, labels: 0 };
+            const tot = { added: 0, duplicate: 0, invalid: 0, labels: 0, errors: [] };
             try {
-                const CH = 15;
-                for (let i = 0; i < list.length; i += CH) {
-                    o.onMsg(`Uploading ${Math.min(i + CH, list.length)} / ${list.length}…`, true);
+                // Keep each request below the documented 256 MB post_max_size, and
+                // below PHP's max_file_uploads even when many images are selected.
+                const MAX_FILES = 15, MAX_BYTES = 190 * 1024 * 1024;
+                const batches = [];
+                let batch = [], batchBytes = 0;
+                for (const file of list) {
+                    if (file.size > 50 * 1024 * 1024) {
+                        tot.invalid++;
+                        tot.errors.push(`${file.name} is larger than the 50 MB per-file upload limit.`);
+                        continue;
+                    }
+                    if (batch.length && (batch.length >= MAX_FILES || batchBytes + file.size > MAX_BYTES)) {
+                        batches.push(batch); batch = []; batchBytes = 0;
+                    }
+                    batch.push(file); batchBytes += file.size;
+                }
+                if (batch.length) batches.push(batch);
+                let sent = 0;
+                for (const group of batches) {
+                    sent += group.length;
+                    o.onMsg(`Uploading ${sent} / ${list.length}…`, true);
                     const fd = new FormData(); fd.append('action', 'upload_images');
-                    list.slice(i, i + CH).forEach(f => fd.append('files[]', f, f.name));
+                    group.forEach(f => fd.append('files[]', f, f.name));
                     const j = await call(fd);
                     tot.added += j.added; tot.duplicate += j.duplicate; tot.invalid += j.invalid; tot.labels += j.labels || 0;
+                    tot.errors.push(...(j.upload_errors || []));
                 }
                 const p = [`${tot.added} image(s) added`];
                 if (tot.labels) p.push(`${tot.labels} label(s) imported with them`);
                 if (tot.duplicate) p.push(`${tot.duplicate} already in the dataset`);
                 if (tot.invalid) p.push(`${tot.invalid} not readable / not an image`);
-                o.onMsg('✓ ' + p.join(' · '), true);
+                if (tot.errors.length) p.push(tot.errors.slice(0, 3).join(' '));
+                const hasWarnings = tot.invalid > 0 || tot.errors.length > 0;
+                o.onMsg((hasWarnings ? '⚠ ' : '✓ ') + p.join(' · '), !hasWarnings || tot.added > 0);
                 if (tot.added > 0 && o.onDone) o.onDone(tot);
             } catch (err) { o.onMsg('Upload failed: ' + err.message, false); }
         };

@@ -8,6 +8,19 @@ if (!is_dir($uploadDir))  mkdir($uploadDir, 0777, true);
 if (!is_dir($previewDir)) mkdir($previewDir, 0777, true);
 if (!is_dir($outputDir))  mkdir($outputDir, 0777, true);
 
+// PHP drops $_POST and $_FILES entirely when post_max_size is exceeded.
+// Catch that before the request is mistaken for a missing upload.
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $limit = trim((string) ini_get('post_max_size'));
+    $unit = strtolower(substr($limit, -1));
+    $factor = match ($unit) { 'g' => 1024 ** 3, 'm' => 1024 ** 2, 'k' => 1024, default => 1 };
+    $postLimit = (int) ((float) $limit * $factor);
+    $requestSize = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+    if ($postLimit > 0 && $requestSize > $postLimit) {
+        renderError('The upload exceeds PHP post_max_size (' . ini_get('post_max_size') . '). Stop the old server and restart it with ./run-linux.sh.');
+    }
+}
+
 // ── Handle AJAX Save to output/ ──────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'save_to_output') {
     header('Content-Type: application/json');

@@ -35,11 +35,13 @@ python -m pip install torch torchvision  # CPU build; use the PyTorch selector f
 python -m pip install kraken scikit-image pillow numpy
 ```
 
-Start PHP's built-in web server in the project directory:
+Start PHP's built-in web server with the app's 50 MB per-file upload limit:
 
 ```bash
-php -S 127.0.0.1:8000
+./run-linux.sh
 ```
+
+Stop any old PHP server first with `Ctrl+C`; changing the command does not change limits in a server that is already running.
 
 Open [http://127.0.0.1:8000/](http://127.0.0.1:8000/) for the manual cropper, or [http://127.0.0.1:8000/autocrop.php](http://127.0.0.1:8000/autocrop.php) for automatic word cropping.
 

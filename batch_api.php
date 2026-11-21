@@ -145,7 +145,7 @@ if ($action === 'add_crop') {
     $prefix = (string) ($_POST['prefix'] ?? '');
     if (!validPrefix($prefix)) out(['ok' => false, 'error' => 'bad prefix'], 400);
     $up = $_FILES['image'] ?? null;
-    if (!$up || $up['error'] !== UPLOAD_ERR_OK || $up['size'] > 20 * 1024 * 1024) {
+    if (!$up || $up['error'] !== UPLOAD_ERR_OK || $up['size'] > 50 * 1024 * 1024) {
         out(['ok' => false, 'error' => 'Bad crop upload'], 400);
     }
     $img = @imagecreatefromstring((string) file_get_contents($up['tmp_name']));

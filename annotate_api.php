@@ -21,6 +21,22 @@ function stats(array $items): array
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') out(['ok' => false, 'error' => 'POST required'], 405);
+
+// PHP empties both $_POST and $_FILES when the whole request exceeds post_max_size.
+// Detect that before reporting the misleading "unknown action" response.
+$toBytes = static function (string $value): int {
+    $value = trim($value);
+    if ($value === '') return 0;
+    $unit = strtolower(substr($value, -1));
+    $number = (float) $value;
+    return (int) ($number * match ($unit) { 'g' => 1024 ** 3, 'm' => 1024 ** 2, 'k' => 1024, default => 1 });
+};
+$postLimit = $toBytes((string) ini_get('post_max_size'));
+$requestSize = (int) ($_SERVER['CONTENT_LENGTH'] ?? 0);
+if ($postLimit > 0 && $requestSize > $postLimit) {
+    out(['ok' => false, 'error' => 'The upload is larger than PHP post_max_size (' . ini_get('post_max_size') . '). Increase post_max_size and upload_max_filesize, then restart PHP.'], 413);
+}
+
 $action = $_POST['action'] ?? '';
 
 // one writer at a time so quick consecutive saves cannot overwrite each other
@@ -97,7 +113,7 @@ if ($action === 'upload_images') {
     if (!$files) out(['ok' => false, 'error' => 'No file received (the server may limit the upload size).'], 400);
     $maxId = 0; $have = [];
     foreach ($items as $r) { $maxId = max($maxId, (int) $r['id']); if (!empty($r['uid'])) $have[$r['uid']] = true; }
-    $res = ['added' => 0, 'duplicate' => 0, 'invalid' => 0];
+    $res = ['added' => 0, 'duplicate' => 0, 'invalid' => 0, 'upload_errors' => []];
     $add = function (string $bytes, string $name) use (&$items, &$maxId, &$have, &$res, $htrImageDir): void {
         $name = basename(str_replace('\\', '/', $name));
         $img = @imagecreatefromstring($bytes);
@@ -121,7 +137,17 @@ if ($action === 'upload_images') {
     $okExt = ['png', 'jpg', 'jpeg', 'webp'];
     $labelFiles = []; $res['labels'] = 0;
     foreach ($files as [$name, $tmp, $err, $size]) {
-        if ($err !== UPLOAD_ERR_OK || $size > 200 * 1024 * 1024) { $res['invalid']++; continue; }
+        if ($err !== UPLOAD_ERR_OK) {
+            $res['invalid']++;
+            $res['upload_errors'][] = match ($err) {
+                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => basename($name) . ' exceeds PHP upload_max_filesize (' . ini_get('upload_max_filesize') . ').',
+                UPLOAD_ERR_PARTIAL => basename($name) . ' was only partially uploaded; retry it.',
+                UPLOAD_ERR_NO_TMP_DIR, UPLOAD_ERR_CANT_WRITE => 'PHP could not write the upload temporary file.',
+                default => basename($name) . ' could not be uploaded (PHP error ' . $err . ').',
+            };
+            continue;
+        }
+        if ($size > 50 * 1024 * 1024) { $res['invalid']++; $res['upload_errors'][] = basename($name) . ' is larger than the 50 MB per-file limit.'; continue; }
         $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
         if ($ext === 'zip') {
             if (!class_exists('ZipArchive')) out(['ok' => false, 'error' => 'zip files need the PHP zip extension; upload the images directly instead.'], 400);
@@ -137,12 +163,12 @@ if ($action === 'upload_images') {
                     continue;
                 }
                 if (substr($en, -1) === '/' || strpos($en, '__MACOSX') !== false || !in_array(strtolower(pathinfo($en, PATHINFO_EXTENSION)), $okExt, true)) continue;
-                if ($st['size'] > 20 * 1024 * 1024) { $res['invalid']++; continue; }
+                if ($st['size'] > 50 * 1024 * 1024) { $res['invalid']++; $res['upload_errors'][] = basename($en) . ' is larger than the 50 MB per-file limit.'; continue; }
                 $add((string) $z->getFromIndex($i), $en);
             }
             $z->close();
         } elseif (in_array($ext, $okExt, true)) {
-            if ($size > 20 * 1024 * 1024) { $res['invalid']++; continue; }
+            if ($size > 50 * 1024 * 1024) { $res['invalid']++; $res['upload_errors'][] = basename($name) . ' is larger than the 50 MB per-file limit.'; continue; }
             $add((string) file_get_contents($tmp), $name);
         } else {
             $res['invalid']++;

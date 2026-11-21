@@ -457,6 +457,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'batch
                 <span class="kc-spinner" id="htrSpin"></span>
                 <span id="htrBtnText">⚙️ Batch Process for HTR</span>
             </button>
+            <a class="kc-submit" href="annotate.php" style="text-decoration:none;">✍️ Open annotation tool</a>
             <div class="kc-io">
                 <div class="kc-io-title">Annotated dataset</div>
                 <div class="kc-result-btns" style="margin-top:8px;">
@@ -601,9 +602,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'batch
                     if (data.success) {
                         const done = (data.labeled || 0) + (data.unreadable || 0);
                         const left = Math.max(0, data.total - done);
-                        result.innerHTML = data.processed > 0
-                            ? `✓ Processed ${data.processed} image(s) into <code>${data.images_dir}</code> ` +
-                            `(${data.skipped} skipped).<br>` +
+                        result.innerHTML = data.total > 0
+                            ? (data.processed > 0
+                                ? `✓ Processed ${data.processed} image(s) into <code>${data.images_dir}</code> (${data.skipped} skipped).<br>`
+                                : `✓ No new images in <code>output/</code>. The existing annotation set has ${data.total} image(s).<br>`) +
                             `<div class="kc-result-btns">` +
                             `<a class="kc-btn primary" href="annotate.php">✍️ Open annotation tool (${data.total} images)` +
                             `<span class="kc-prog ${left === 0 ? 'done' : ''}">${left === 0 ? '✓ All annotated' : done + ' annotated · ' + left + ' not done'}</span></a>` +

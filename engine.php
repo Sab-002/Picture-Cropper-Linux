@@ -55,7 +55,7 @@ function cropUploadError(string $name, string $dst, ?array $up): ?string
     }
     if (!$up) return 'No image received.';
     return match ($up['error']) {
-        UPLOAD_ERR_OK => $up['size'] > 20 * 1024 * 1024 ? 'The new crop is larger than 20 MB.' : null,
+        UPLOAD_ERR_OK => $up['size'] > 50 * 1024 * 1024 ? 'The new crop is larger than 50 MB.' : null,
         UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => 'The new crop is larger than the server allows (upload_max_filesize = '
             . ini_get('upload_max_filesize') . ' in php.ini).',
         UPLOAD_ERR_NO_TMP_DIR, UPLOAD_ERR_CANT_WRITE => 'The server could not store the upload (temp folder missing or not writable).',
