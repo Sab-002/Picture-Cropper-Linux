@@ -49,7 +49,13 @@ The app looks for Python in `.venv/bin/python`, `.venv-kraken/bin/python`, the e
 
 ## Run on Windows
 
-Install PHP 8.2+ with the required extensions, then run `php -S localhost:8000` from the project directory. Use the same pages at `http://localhost:8000/` and `http://localhost:8000/autocrop.php`.
+Install PHP 8.2+ with the required extensions, then open PowerShell in the project directory and start the server with the 50 MB per-file upload limit:
+
+```powershell
+php -d upload_max_filesize=50M -d post_max_size=256M -d max_file_uploads=1000 -d max_execution_time=0 -S localhost:8000
+```
+
+Stop any server already running before restarting with these options. Use `http://localhost:8000/` for the manual cropper and `http://localhost:8000/autocrop.php` for automatic word cropping.
 
 The optional Electron packaging scripts under `desktop/` currently target a Windows installer.
 
